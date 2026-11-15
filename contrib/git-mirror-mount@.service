@@ -1,0 +1,31 @@
+# systemd user unit: one mount per instance.
+#
+#   cp git-mirror-mount@.service git-mirror-fetch@.service git-mirror-fetch@.timer ~/.config/systemd/user/
+#   mkdir -p ~/.config/git-mirror-mount
+#   $EDITOR ~/.config/git-mirror-mount/<name>.env      (see example.env)
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now git-mirror-mount@<name>.service
+#   systemctl --user enable --now git-mirror-fetch@<name>.timer   (optional daily fetch)
+#
+# Running under the user manager also avoids AppArmor denials for
+# fusermount3 when your terminal is a snap.
+
+[Unit]
+Description=git-mirror-mount %i
+Documentation=file://%h/projects/git-mirror-mount/README.md
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/git-mirror-mount/%i.env
+# Adjust the binary path if you installed it elsewhere.
+ExecStart=%h/go/bin/git-mirror-mount -no-reexec $OPTS ${REPO} ${BRANCH} ${MOUNTPOINT}
+# Re-check the branch now (e.g. after a fetch).
+ExecReload=/bin/kill -HUP $MAINPID
+KillSignal=SIGTERM
+# Clean up a stale mount if the process died.
+ExecStopPost=-/usr/bin/fusermount3 -uz ${MOUNTPOINT}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,9 @@
+# Fetches the mirror of instance %i and tells the mount to pick it up.
+[Unit]
+Description=git fetch for git-mirror-mount %i
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/git-mirror-mount/%i.env
+ExecStart=/usr/bin/git --git-dir=${REPO} fetch --prune --quiet
+ExecStartPost=-/usr/bin/systemctl --user reload git-mirror-mount@%i.service

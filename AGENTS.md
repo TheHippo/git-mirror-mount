@@ -26,6 +26,9 @@ Run all of these before you call a change done.
 | `fs.go` | `gitFS.refresh` (snapshots, mtimes, pinning, prefetch), inode numbering, FUSE nodes for both layouts, file handles, blob LRU |
 | `spool.go` | streaming of large blobs (`spool`, `spoolMgr`) and the on-disk cache (`diskCache`) |
 | `git.go` | `git cat-file --batch-command` pool, tree parsing, LFS pointers, `diffTrees`, `resolve`, `ensureRef` |
+| `confinement.go` | AppArmor label detection, automatic restart via `systemd-run --user`, mount-failure hints |
+| `contrib/` | systemd user units (mount template, fetch service and timer) and `example.env` |
+| `confinement_test.go` | label parsing, `systemd-run` arguments, restart end-to-end with a stand-in `systemd-run` |
 | `git_test.go` | unit tests (tree parsing, pool, LFS pointers, diff-tree, disk cache) |
 
 ## Design invariants (do not break)
@@ -68,6 +71,11 @@ Run all of these before you call a change done.
    Otherwise a full stdout pipe deadlocks against our writes.
 8. Strictly read-only: `ro` mount option, and `Open` rejects write flags with
    `EROFS`. Don't add write support.
+
+9. **Restarting must not loop.** `maybeReexec` runs before anything else
+   in `main` and is guarded by `GIT_MIRROR_MOUNT_REEXEC`. Only an allow-list
+   of environment variables is passed to `systemd-run` (PATH, TMPDIR, HOME,
+   GIT_*). The units in `contrib/` use `-no-reexec`.
 
 ## Git protocol notes
 

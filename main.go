@@ -5,6 +5,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -32,6 +33,7 @@ func main() {
 		cacheDirMB = flag.Int64("cache-dir-mb", 10240, "size limit of -cache-dir in MiB")
 		lfs        = flag.Bool("lfs", false, "serve Git LFS objects present in <repo>/lfs/objects instead of pointer files")
 		pinRef     = flag.String("pin-ref", "", "keep <prefix>/current and <prefix>/previous refs on the mounted commits so gc can't prune them (e.g. refs/mount/main)")
+		noReexec   = flag.Bool("no-reexec", false, "don't restart via systemd-run --user when started under a snap AppArmor label")
 		allowOther = flag.Bool("allow-other", false, "allow other users to access the mount (needs user_allow_other in /etc/fuse.conf)")
 		debug      = flag.Bool("debug", false, "log every FUSE request")
 	)
@@ -48,6 +50,12 @@ func main() {
 	}
 	repo, rev, mnt := flag.Arg(0), flag.Arg(1), flag.Arg(2)
 
+	// Must happen before anything else: a snap-confined process can't mount.
+	maybeReexec(!*noReexec)
+
+	if err := checkMountpoint(mnt); err != nil {
+		log.Fatal(err)
+	}
 	if err := checkGitVersion(); err != nil {
 		log.Fatal(err)
 	}
@@ -119,7 +127,7 @@ func main() {
 	}
 	server, err := fs.Mount(mnt, root, opts)
 	if err != nil {
-		log.Fatalf("mount: %v", err)
+		log.Fatalf("mount: %v%s", err, mountErrorHint(err))
 	}
 	log.Printf("mounted %s (%s @ %.12s) at %s", gitDir, rev, info.commit, mnt)
 
@@ -156,6 +164,23 @@ func main() {
 			return
 		}
 	}
+}
+
+// checkMountpoint turns the common failure cases into clear messages instead
+// of fusermount3's exit status.
+func checkMountpoint(mnt string) error {
+	st, err := os.Stat(mnt)
+	switch {
+	case errors.Is(err, syscall.ENOTCONN):
+		return fmt.Errorf("%s is a stale FUSE mount (a previous instance died); clean up with: fusermount3 -uz %s", mnt, mnt)
+	case errors.Is(err, os.ErrNotExist):
+		return fmt.Errorf("mountpoint %s does not exist; create it with: mkdir -p %s", mnt, mnt)
+	case err != nil:
+		return fmt.Errorf("mountpoint %s: %v", mnt, err)
+	case !st.IsDir():
+		return fmt.Errorf("mountpoint %s is not a directory", mnt)
+	}
+	return nil
 }
 
 // findGitDir accepts a bare/mirror repo or a normal working copy.

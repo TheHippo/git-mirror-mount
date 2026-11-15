@@ -29,6 +29,49 @@ fusermount3 -u ~/huge     # or: kill the process (SIGINT/SIGTERM)
 `<branch>` can be anything git can resolve: `main`, `refs/heads/release`, a
 tag, or a commit hash (which then never changes).
 
+### Running as a systemd user service (recommended)
+
+`contrib/` contains a unit template for the mount (one instance per mirror)
+and an optional daily fetch timer that runs `git fetch --prune` and then
+reloads the mount:
+
+```sh
+cp contrib/git-mirror-*@.* ~/.config/systemd/user/
+mkdir -p ~/.config/git-mirror-mount
+cp contrib/example.env ~/.config/git-mirror-mount/huge.env   # edit paths
+systemctl --user daemon-reload
+systemctl --user enable --now git-mirror-mount@huge.service
+systemctl --user enable --now git-mirror-fetch@huge.timer    # optional
+```
+
+The unit expects the binary at `~/go/bin/git-mirror-mount` (`go install .`).
+Edit `ExecStart` if it lives elsewhere. Logs: `journalctl --user -u git-mirror-mount@huge`.
+
+### AppArmor and snap terminals
+
+Newer Ubuntu releases (and distros based on them) confine `fusermount3`
+with an AppArmor profile. That profile refuses file descriptors inherited
+from snap-confined processes, which shows up as:
+
+```
+fusermount3: file descriptor 3 is not a socket, can't send fuse fd
+```
+
+with `apparmor="DENIED" operation="file_inherit" ... peer="snap.<terminal>"`
+in `journalctl -k`. This happens if your terminal is a snap (e.g. Alacritty):
+every program started from it carries the snap's label.
+
+* Started under a `snap.*` label, `git-mirror-mount` restarts itself with
+  `systemd-run --user` automatically, attached to your terminal (`--pty`,
+  so Ctrl-C works). `-no-reexec` turns that off.
+* As a systemd user service (above) it never runs under a snap label.
+* For any other mount failure under a confined label, it prints this
+  explanation instead of just fusermount3's exit status.
+
+Closing the terminal of an automatically restarted instance sends it
+SIGHUP, which means "refresh", not "quit". Stop it with Ctrl-C,
+`fusermount3 -u <mountpoint>`, or `systemctl --user stop <unit>`.
+
 ### Daily updates
 
 The mount follows the branch. After `git fetch`, the new commit shows up:
@@ -133,6 +176,7 @@ e.g. `git config remote.origin.fetch '+refs/heads/*:refs/heads/*'`.
 | `-procs` | `4` | number of parallel `git cat-file` processes |
 | `-cache-mb` | `256` | in-memory LRU cache for blob contents |
 | `-max-inmem-mb` | `32` | larger blobs are streamed via a spool file |
+| `-no-reexec` | off | don't restart via `systemd-run --user` under a snap AppArmor label |
 | `-allow-other` | off | allow other users (needs `user_allow_other` in `/etc/fuse.conf`) |
 | `-debug` | off | log every FUSE request |
 

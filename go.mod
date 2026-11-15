@@ -1,4 +1,4 @@
-module github.com/hippo/git-mirror-mount
+module github.com/TheHippo/git-mirror-mount
 
 go 1.24.7
 

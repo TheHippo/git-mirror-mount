@@ -12,8 +12,19 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
+
+// gitCommand builds a git command that runs in its own process group. The
+// server must keep working when its controlling terminal hangs up or someone
+// signals "the process group" (e.g. `pkill -HUP -f`), and git children left in
+// the server's group would die of that SIGHUP.
+func gitCommand(args ...string) *exec.Cmd {
+	cmd := exec.Command("git", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return cmd
+}
 
 // errMissing is returned when an object does not exist in the repository.
 var errMissing = errors.New("object missing")
@@ -47,7 +58,7 @@ type catFile struct {
 }
 
 func startCatFile(gitDir string, gen int) (*catFile, error) {
-	cmd := exec.Command("git", "--git-dir="+gitDir, "cat-file", "--batch-command")
+	cmd := gitCommand("--git-dir="+gitDir, "cat-file", "--batch-command")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -407,7 +418,7 @@ type diffEntry struct {
 // diffTrees lists every path (blobs and trees) that differs between two
 // trees, recursively.
 func diffTrees(gitDir, oldTree, newTree string) ([]diffEntry, error) {
-	cmd := exec.Command("git", "--git-dir="+gitDir, "diff-tree", "-r", "-t", "-z",
+	cmd := gitCommand("--git-dir="+gitDir, "diff-tree", "-r", "-t", "-z",
 		"--no-renames", "--no-commit-id", oldTree, newTree)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -432,11 +443,11 @@ func diffTrees(gitDir, oldTree, newTree string) ([]diffEntry, error) {
 // ensureRef points ref at oid unless it already does. Used to pin mounted
 // commits so gc cannot prune their objects.
 func ensureRef(gitDir, ref, oid string) error {
-	out, err := exec.Command("git", "--git-dir="+gitDir, "rev-parse", "--verify", "-q", ref).Output()
+	out, err := gitCommand("--git-dir="+gitDir, "rev-parse", "--verify", "-q", ref).Output()
 	if err == nil && strings.TrimSpace(string(out)) == oid {
 		return nil
 	}
-	cmd := exec.Command("git", "--git-dir="+gitDir, "update-ref", "-m", "git-mirror-mount pin", ref, oid)
+	cmd := gitCommand("--git-dir="+gitDir, "update-ref", "-m", "git-mirror-mount pin", ref, oid)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("update-ref %s: %v: %s", ref, err, strings.TrimSpace(string(out)))
 	}
@@ -486,7 +497,7 @@ type commitInfo struct {
 // resolve turns a branch/ref/commit name into commit, root tree and commit
 // time. Uses a fresh git process so ref updates by `git fetch` are seen.
 func resolve(gitDir, rev string) (commitInfo, error) {
-	cmd := exec.Command("git", "--git-dir="+gitDir, "show", "-s",
+	cmd := gitCommand("--git-dir="+gitDir, "show", "-s",
 		"--format=%H %T %ct", rev+"^{commit}", "--")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

@@ -76,6 +76,10 @@ Run all of these before you call a change done.
    in `main` and is guarded by `GIT_MIRROR_MOUNT_REEXEC`. Only an allow-list
    of environment variables is passed to `systemd-run` (PATH, TMPDIR, HOME,
    GIT_*). The units in `contrib/` use `-no-reexec`.
+10. **The server must never die of SIGHUP or SIGPIPE, and git children run in
+    their own process group** (`gitCommand`). SIGHUP means "refresh", from
+    process start on. Under the snap restart it also arrives as a terminal
+    hangup and via `pkill -HUP -f`. See DECISIONS.md, "Signals under the restart".
 
 ## Git protocol notes
 

@@ -68,9 +68,15 @@ every program started from it carries the snap's label.
 * For any other mount failure under a confined label, it prints this
   explanation instead of just fusermount3's exit status.
 
-Closing the terminal of an automatically restarted instance sends it
-SIGHUP, which means "refresh", not "quit". Stop it with Ctrl-C,
-`fusermount3 -u <mountpoint>`, or `systemctl --user stop <unit>`.
+The restarted instance runs as the transient unit `git-mirror-mount-<pid>.service`
+(the name is printed at startup; `<pid>` is the PID of the process you started).
+The process you started stays behind as its front end: `SIGHUP` sent to it (or to
+the server, e.g. by `pkill -HUP -f`) refreshes the mount, and `SIGTERM`/`SIGINT`
+are passed on. Closing the terminal also only refreshes; the instance keeps running.
+Stop it with Ctrl-C, `fusermount3 -u <mountpoint>`, or
+`systemctl --user stop git-mirror-mount-<pid>`. However the unit ends (even
+`kill -9`), the mountpoint is lazily unmounted afterwards, so no stale
+"Transport endpoint is not connected" mount is left behind.
 
 ### Daily updates
 

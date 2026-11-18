@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -160,5 +161,15 @@ func TestDiskCacheEviction(t *testing.T) {
 	c2, _ := openDiskCache(dir, 10)
 	if _, ok := c2.lookup("bb02"); !ok || c2.total != 6 {
 		t.Fatalf("reopen: total=%d", c2.total)
+	}
+}
+
+func TestGitCommandOwnProcessGroup(t *testing.T) {
+	cmd := gitCommand("version")
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid {
+		t.Fatal("git children must run in their own process group, or a terminal hangup kills them")
+	}
+	if out, err := cmd.Output(); err != nil || !strings.HasPrefix(string(out), "git version") {
+		t.Fatalf("%q %v", out, err)
 	}
 }

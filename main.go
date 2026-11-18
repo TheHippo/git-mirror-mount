@@ -51,7 +51,16 @@ func main() {
 	repo, rev, mnt := flag.Arg(0), flag.Arg(1), flag.Arg(2)
 
 	// Must happen before anything else: a snap-confined process can't mount.
-	maybeReexec(!*noReexec)
+	maybeReexec(!*noReexec, mnt)
+
+	// SIGHUP means "refresh" and must never kill us, not even while we are
+	// still starting up (a terminal hangup or `pkill -HUP -f` can arrive at
+	// any time). One queued SIGHUP becomes one refresh once the loop runs.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGHUP)
+	// A vanished terminal or pipe must not kill us through a log write either:
+	// with SIGPIPE caught, writes to a broken stdout/stderr just fail.
+	signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE)
 
 	if err := checkMountpoint(mnt); err != nil {
 		log.Fatal(err)
@@ -131,8 +140,7 @@ func main() {
 	}
 	log.Printf("mounted %s (%s @ %.12s) at %s", gitDir, rev, info.commit, mnt)
 
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	var tick <-chan time.Time
 	if *refresh > 0 {
 		t := time.NewTicker(*refresh)
